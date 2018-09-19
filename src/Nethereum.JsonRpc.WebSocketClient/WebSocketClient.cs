@@ -8,7 +8,6 @@ using Common.Logging;
 using Nethereum.JsonRpc.Client;
 using Nethereum.JsonRpc.Client.RpcMessages;
 using Newtonsoft.Json;
-using RpcError = Nethereum.JsonRpc.Client.RpcError;
 
 namespace Nethereum.JsonRpc.WebSocketClient
 {
@@ -27,53 +26,6 @@ namespace Nethereum.JsonRpc.WebSocketClient
         }
 
         public JsonSerializerSettings JsonSerializerSettings { get; set; }
-
-        protected override async Task<T> SendInnerRequestAync<T>(RpcRequest request, string route = null)
-        {
-            var response =
-                await SendAsync<RpcRequestMessage, RpcResponseMessage>(
-                        new RpcRequestMessage(request.Id, request.Method, request.RawParameters))
-                    .ConfigureAwait(false);
-            HandleRpcError(response);
-            return response.GetResult<T>();
-        }
-
-        protected override async Task<T> SendInnerRequestAync<T>(string method, string route = null,
-            params object[] paramList)
-        {
-            var response =
-                await SendAsync<RpcRequestMessage, RpcResponseMessage>(
-                        new RpcRequestMessage(Configuration.DefaultRequestId, method, paramList))
-                    .ConfigureAwait(false);
-            HandleRpcError(response);
-            return response.GetResult<T>();
-        }
-
-        private void HandleRpcError(RpcResponseMessage response)
-        {
-            if (response.HasError)
-                throw new RpcResponseException(new RpcError(response.Error.Code, response.Error.Message,
-                    response.Error.Data));
-        }
-
-        public override async Task SendRequestAsync(RpcRequest request, string route = null)
-        {
-            var response =
-                await SendAsync<RpcRequestMessage, RpcResponseMessage>(
-                        new RpcRequestMessage(request.Id, request.Method, request.RawParameters))
-                    .ConfigureAwait(false);
-            HandleRpcError(response);
-        }
-
-        public override async Task SendRequestAsync(string method, string route = null, params object[] paramList)
-        {
-            var response =
-                await SendAsync<RpcRequestMessage, RpcResponseMessage>(
-                        new RpcRequestMessage(Configuration.DefaultRequestId, method, paramList))
-                    .ConfigureAwait(false);
-            HandleRpcError(response);
-        }
-
         private readonly object _lockingObject = new object();
         private readonly ILog _log;
 
@@ -85,20 +37,20 @@ namespace Nethereum.JsonRpc.WebSocketClient
             _log = log;
         }
 
-        private ClientWebSocket GetClientWebSocket()
+        private async Task<ClientWebSocket> GetClientWebSocketAsync()
         {
             try
             {
                 if (_clientWebSocket == null || _clientWebSocket.State != WebSocketState.Open)
                 {
                     _clientWebSocket = new ClientWebSocket();
-                    _clientWebSocket.ConnectAsync(new Uri(Path), new CancellationTokenSource(ConnectionTimeout).Token);
-   
+                    await _clientWebSocket.ConnectAsync(new Uri(Path), new CancellationTokenSource(ConnectionTimeout).Token).ConfigureAwait(false);
+
                 }
             }
             catch (TaskCanceledException ex)
             {
-                throw new RpcClientTimeoutException($"Rpc timeout afer {ConnectionTimeout} milliseconds", ex);
+                throw new RpcClientTimeoutException($"Rpc timeout after {ConnectionTimeout.TotalMilliseconds} milliseconds", ex);
             }
             catch
             {
@@ -122,7 +74,7 @@ namespace Nethereum.JsonRpc.WebSocketClient
             }
             catch (TaskCanceledException ex)
             {
-                throw new RpcClientTimeoutException($"Rpc timeout afer {ConnectionTimeout} milliseconds", ex);
+                throw new RpcClientTimeoutException($"Rpc timeout after {ConnectionTimeout.TotalMilliseconds} milliseconds", ex);
             }
         }
 
@@ -151,7 +103,7 @@ namespace Nethereum.JsonRpc.WebSocketClient
             return memoryStream;
         }
 
-        protected async Task<TResponse> SendAsync<TRequest, TResponse>(TRequest request) where TResponse: RpcResponseMessage
+        protected override async Task<RpcResponseMessage> SendAsync(RpcRequestMessage request, string route = null)
         {
             var logger = new RpcLogger(_log);
             try
@@ -161,9 +113,9 @@ namespace Nethereum.JsonRpc.WebSocketClient
                 var requestBytes = new ArraySegment<byte>(Encoding.UTF8.GetBytes(rpcRequestJson));
                 logger.LogRequest(rpcRequestJson);
                 var cancellationTokenSource = new CancellationTokenSource();
-                cancellationTokenSource.CancelAfter(TimeSpan.FromMilliseconds(ConnectionTimeout));
+                cancellationTokenSource.CancelAfter(ConnectionTimeout);
 
-                var webSocket = GetClientWebSocket();
+                var webSocket = await GetClientWebSocketAsync().ConfigureAwait(false);
                 await webSocket.SendAsync(requestBytes, WebSocketMessageType.Text, true, cancellationTokenSource.Token)
                     .ConfigureAwait(false);
 
@@ -174,7 +126,7 @@ namespace Nethereum.JsonRpc.WebSocketClient
                     using (var reader = new JsonTextReader(streamReader))
                     {
                         var serializer = JsonSerializer.Create(JsonSerializerSettings);
-                        var message = serializer.Deserialize<TResponse>(reader);
+                        var message = serializer.Deserialize<RpcResponseMessage>(reader);
                         logger.LogResponse(message);
                         return message;
                     }
@@ -183,7 +135,7 @@ namespace Nethereum.JsonRpc.WebSocketClient
             catch (Exception ex)
             {
                 logger.LogException(ex);
-                throw new RpcClientUnknownException("Error occurred when trying to send ipc requests(s)", ex);
+                throw new RpcClientUnknownException("Error occurred trying to send web socket requests(s)", ex);
             }
             finally
             {

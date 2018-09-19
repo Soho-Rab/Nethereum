@@ -30,7 +30,6 @@ namespace Nethereum.XUnitEthereumClients
     {
         public static IClient GetClient()
         {
-            //return new WebSocketClient("ws://localhost:8546");
             return new RpcClient(new Uri("http://localhost:8545"));
         }
     }
@@ -66,6 +65,8 @@ namespace Nethereum.XUnitEthereumClients
             return _web3;
         }
 
+        public bool Geth { get; private set; }
+
         public EthereumClientIntegrationFixture()
         {
             //TODO:
@@ -77,33 +78,83 @@ namespace Nethereum.XUnitEthereumClients
             //4 Arguments.
             // So the tests can run for both Geth and Parity, Windows, Mac and Linux.
 
-            var location = typeof(EthereumClientIntegrationFixture).GetTypeInfo().Assembly.Location;
-            var dirPath = Path.GetDirectoryName(location);
-            _exePath = Path.GetFullPath(Path.Combine(dirPath, @"..\..\..\..\..\testchain\clique"));
+            var client = Environment.GetEnvironmentVariable("ETHEREUM_CLIENT");
             
-            DeleteData();
+            if(client == null) Console.WriteLine("**************CLIENT NOT CONFIGURED");
+            else Console.WriteLine("**************CLIENT " + client.ToString());
 
-            ProcessStartInfo psiSetup = new ProcessStartInfo(Path.Combine(_exePath, "geth.exe"), @"--datadir=devChain init genesis_clique.json ")
+            if (string.IsNullOrEmpty(client))
             {
-                CreateNoWindow = false,
-                WindowStyle = ProcessWindowStyle.Normal,
-                UseShellExecute = true,
-                WorkingDirectory = _exePath
-
-            };
-
-            Process.Start(psiSetup);
-            Thread.Sleep(3000);
-
-            ProcessStartInfo psi = new ProcessStartInfo(Path.Combine(_exePath, "geth.exe"), @" --nodiscover --rpc --datadir=devChain  --rpccorsdomain "" * "" --mine --rpcapi ""eth, web3, personal, net, miner, admin, debug"" --rpcaddr ""0.0.0.0"" --unlock 0x12890d2cce102216644c59daE5baed380d84830c --password ""pass.txt"" --verbosity 0 console  ")
+                Geth = true;
+            }
+            else if (client == "geth")
             {
-                CreateNoWindow = false,
-                WindowStyle = ProcessWindowStyle.Normal,
-                UseShellExecute = true,
-                WorkingDirectory = _exePath
+                Geth = true;
+                Console.WriteLine("***** GETH ****************");
+            }
+            else
+            {
+                Geth = false;
+                Console.WriteLine("***** PARITY ****************");
+            }
 
-            };
-            _process = Process.Start(psi);
+           // Geth = false;
+            if (Geth)
+            {
+
+                var location = typeof(EthereumClientIntegrationFixture).GetTypeInfo().Assembly.Location;
+                var dirPath = Path.GetDirectoryName(location);
+                _exePath = Path.GetFullPath(Path.Combine(dirPath, @"..\..\..\..\..\testchain\clique"));
+
+                DeleteData();
+
+                ProcessStartInfo psiSetup = new ProcessStartInfo(Path.Combine(_exePath, "geth.exe"),
+                    @"--datadir=devChain init genesis_clique.json ")
+                {
+                    CreateNoWindow = false,
+                    WindowStyle = ProcessWindowStyle.Normal,
+                    UseShellExecute = true,
+                    WorkingDirectory = _exePath
+
+                };
+
+                Process.Start(psiSetup);
+                Thread.Sleep(3000);
+
+                ProcessStartInfo psi = new ProcessStartInfo(Path.Combine(_exePath, "geth.exe"),
+                    @" --nodiscover --rpc --datadir=devChain  --rpccorsdomain "" * "" --mine --rpcapi ""eth, web3, personal, net, miner, admin, debug"" --rpcaddr ""0.0.0.0"" --unlock 0x12890d2cce102216644c59daE5baed380d84830c --password ""pass.txt"" --verbosity 0 console  ")
+                {
+                    CreateNoWindow = false,
+                    WindowStyle = ProcessWindowStyle.Normal,
+                    UseShellExecute = true,
+                    WorkingDirectory = _exePath
+
+                };
+                _process = Process.Start(psi);
+            }
+            else
+            {
+
+                var location = typeof(EthereumClientIntegrationFixture).GetTypeInfo().Assembly.Location;
+                var dirPath = Path.GetDirectoryName(location);
+                _exePath = Path.GetFullPath(Path.Combine(dirPath, @"..\..\..\..\..\testchain\parity poa"));
+
+                //DeleteData();
+
+                ProcessStartInfo psi = new ProcessStartInfo(Path.Combine(_exePath, "parity.exe"),
+                    @" --config node0.toml" ) // --logging debug")
+                {
+                    CreateNoWindow = false,
+                    WindowStyle = ProcessWindowStyle.Normal,
+                    UseShellExecute = true,
+                    WorkingDirectory = _exePath
+
+                };
+                _process = Process.Start(psi);
+                Thread.Sleep(10000);
+            }
+
+         
             Thread.Sleep(3000);
         }
 
